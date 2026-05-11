@@ -5,7 +5,8 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node server/index.js"
+    "dev": "node server/index.js",
+    "build": "cd client && npm install && npm run build"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",
