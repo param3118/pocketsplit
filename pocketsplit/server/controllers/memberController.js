@@ -1,30 +1,14 @@
-const { getDb } = require('../db/database');
+const { dbQuery, dbGet, dbRun } = require('../db/database');
 const { computeBalances } = require('../services/balanceService');
-
-function dbQuery(db, sql, params = []) {
-  const res = db.exec(sql, params);
-  if (!res.length) return [];
-  const [{ columns, values }] = res;
-  return values.map(row => {
-    const obj = {};
-    columns.forEach((col, i) => { obj[col] = row[i]; });
-    return obj;
-  });
-}
-
-function dbGet(db, sql, params = []) {
-  return dbQuery(db, sql, params)[0] || null;
-}
 
 // GET /members/:groupId
 async function getMembers(req, res) {
-  const db = await getDb();
   const { groupId } = req.params;
 
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [groupId]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [groupId]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
-  const members = dbQuery(db,
+  const members = await dbQuery(
     `SELECT u.id, u.name, u.created_at FROM users u
      JOIN group_members gm ON gm.user_id = u.id
      WHERE gm.group_id = ?
@@ -42,13 +26,11 @@ async function addMember(req, res) {
   if (!group_id) return res.status(400).json({ success: false, error: 'group_id is required' });
   if (!name || !name.trim()) return res.status(400).json({ success: false, error: 'name is required' });
 
-  const db = await getDb();
-
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [group_id]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [group_id]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
   // Check for duplicate name in this group
-  const existingInGroup = dbGet(db,
+  const existingInGroup = await dbGet(
     `SELECT u.id FROM users u
      JOIN group_members gm ON gm.user_id = u.id
      WHERE gm.group_id = ? AND lower(u.name) = lower(?)`,
@@ -59,13 +41,13 @@ async function addMember(req, res) {
   }
 
   // Find or create user globally
-  let user = dbGet(db, `SELECT id, name FROM users WHERE lower(name) = lower(?)`, [name.trim()]);
+  let user = await dbGet(`SELECT id, name FROM users WHERE lower(name) = lower(?)`, [name.trim()]);
   if (!user) {
-    db.run(`INSERT INTO users (name) VALUES (?)`, [name.trim()]);
-    user = dbGet(db, `SELECT id, name FROM users ORDER BY id DESC LIMIT 1`);
+    await dbRun(`INSERT INTO users (name) VALUES (?)`, [name.trim()]);
+    user = await dbGet(`SELECT id, name FROM users ORDER BY id DESC LIMIT 1`);
   }
 
-  db.run(`INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)`, [group_id, user.id]);
+  await dbRun(`INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)`, [group_id, user.id]);
 
   res.status(201).json({ success: true, data: user });
 }
@@ -73,9 +55,8 @@ async function addMember(req, res) {
 // DELETE /members/:groupId/:userId
 async function removeMember(req, res) {
   const { groupId, userId } = req.params;
-  const db = await getDb();
 
-  const member = dbGet(db,
+  const member = await dbGet(
     `SELECT user_id FROM group_members WHERE group_id = ? AND user_id = ?`,
     [groupId, userId]
   );
@@ -92,7 +73,7 @@ async function removeMember(req, res) {
     });
   }
 
-  db.run(`DELETE FROM group_members WHERE group_id = ? AND user_id = ?`, [groupId, userId]);
+  await dbRun(`DELETE FROM group_members WHERE group_id = ? AND user_id = ?`, [groupId, userId]);
 
   res.json({ success: true, message: 'Member removed successfully' });
 }

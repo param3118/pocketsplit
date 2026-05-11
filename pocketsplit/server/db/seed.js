@@ -1,20 +1,9 @@
-const { getDb } = require('./database');
+const { dbQuery, dbGet, dbRun } = require('./database');
 const { generateTxnId } = require('../services/txnIdService');
 
-function dbGet(db, sql, params = []) {
-  const res = db.exec(sql, params);
-  if (!res.length || !res[0].values.length) return null;
-  const [{ columns, values }] = res;
-  const obj = {};
-  columns.forEach((col, i) => { obj[col] = values[0][i]; });
-  return obj;
-}
-
 async function seed() {
-  const db = await getDb();
-
   // Check if already seeded
-  const existing = dbGet(db, `SELECT id FROM groups_table LIMIT 1`);
+  const existing = await dbGet(`SELECT id FROM groups_table LIMIT 1`);
   if (existing) {
     console.log('[Seed] Already seeded. Skipping.');
     return;
@@ -23,18 +12,18 @@ async function seed() {
   console.log('[Seed] Seeding demo data...');
 
   // Create group
-  db.run(`INSERT INTO groups_table (name) VALUES ('Flat 4B - Rooftop Squad')`);
-  const group = dbGet(db, `SELECT * FROM groups_table ORDER BY id DESC LIMIT 1`);
+  await dbRun(`INSERT INTO groups_table (name) VALUES ('Flat 4B - Rooftop Squad')`);
+  const group = await dbGet(`SELECT * FROM groups_table ORDER BY id DESC LIMIT 1`);
 
   // Create users
   const memberNames = ['Param', 'Rahul', 'Aman', 'Priya'];
   const memberIds = [];
 
   for (const name of memberNames) {
-    db.run(`INSERT INTO users (name) VALUES (?)`, [name]);
-    const user = dbGet(db, `SELECT id FROM users ORDER BY id DESC LIMIT 1`);
+    await dbRun(`INSERT INTO users (name) VALUES (?)`, [name]);
+    const user = await dbGet(`SELECT id FROM users ORDER BY id DESC LIMIT 1`);
     memberIds.push(user.id);
-    db.run(`INSERT INTO group_members (group_id, user_id) VALUES (?, ?)`, [group.id, user.id]);
+    await dbRun(`INSERT INTO group_members (group_id, user_id) VALUES (?, ?)`, [group.id, user.id]);
   }
 
   const [paramId, rahulId, amanId, priyaId] = memberIds;
@@ -49,22 +38,22 @@ async function seed() {
 
   async function insertExpense({ title, totalAmount, paidBy, splitType, note, participants, customShares }) {
     const txnId = await generateTxnId('EXP');
-    db.run(
+    await dbRun(
       `INSERT INTO expenses (transaction_id, group_id, title, total_amount, paid_by, split_type, note)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [txnId, group.id, title, totalAmount, paidBy, splitType, note || null]
     );
-    const exp = dbGet(db, `SELECT * FROM expenses ORDER BY id DESC LIMIT 1`);
+    const exp = await dbGet(`SELECT * FROM expenses ORDER BY id DESC LIMIT 1`);
 
     const shares = splitType === 'equal'
       ? equalShares(totalAmount, participants)
       : customShares;
 
     for (const s of shares) {
-      db.run(`INSERT INTO expense_shares (expense_id, user_id, share_amount) VALUES (?,?,?)`,
+      await dbRun(`INSERT INTO expense_shares (expense_id, user_id, share_amount) VALUES (?,?,?)`,
         [exp.id, s.user_id, s.share_amount]);
       const isPaid = s.user_id === paidBy ? 1 : 0;
-      db.run(`INSERT INTO expense_payment_status (expense_id, user_id, is_paid, paid_at) VALUES (?,?,?,?)`,
+      await dbRun(`INSERT INTO expense_payment_status (expense_id, user_id, is_paid, paid_at) VALUES (?,?,?,?)`,
         [exp.id, s.user_id, isPaid, isPaid ? new Date().toISOString() : null]);
     }
     return exp;
@@ -81,7 +70,7 @@ async function seed() {
   });
 
   // Mark Rahul paid on exp1
-  db.run(
+  await dbRun(
     `UPDATE expense_payment_status SET is_paid=1, paid_at=datetime('now') WHERE expense_id=? AND user_id=?`,
     [exp1.id, rahulId]
   );
@@ -134,7 +123,7 @@ async function seed() {
 
   // Settlement: Aman pays Priya ₹500
   const setTxnId = await generateTxnId('SET');
-  db.run(
+  await dbRun(
     `INSERT INTO settlements (transaction_id, group_id, payer_id, receiver_id, amount, note)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [setTxnId, group.id, amanId, priyaId, 50000, 'Partial settle for electricity']

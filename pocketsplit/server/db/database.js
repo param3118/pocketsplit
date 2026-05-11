@@ -1,52 +1,64 @@
-const initSqlJs = require('sql.js');
-const path = require('path');
-const fs = require('fs');
+require('dotenv').config();
+const { createClient } = require('@libsql/client');
 const { initSql } = require('./init');
 
-const DB_PATH = path.join(__dirname, '../../pocketsplit.db');
-
-let db = null;
+let client = null;
 
 async function getDb() {
-  if (db) return db;
+  if (client) return client;
 
-  const SQL = await initSqlJs();
+  client = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
 
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
+  // Enable foreign keys
+  await client.execute("PRAGMA foreign_keys=ON;");
+
+  // Init schema (only creates if not exists)
+  // Split initSql into individual statements because Turso execute() likes one at a time or specific batching
+  const statements = initSql
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  for (const statement of statements) {
+    try {
+      await client.execute(statement);
+    } catch (e) {
+      // Ignore errors about tables already existing
+      if (!e.message.includes('already exists')) {
+        console.error('Migration error:', e.message);
+      }
+    }
   }
 
-  // Enable WAL + foreign keys
-  db.run("PRAGMA foreign_keys=ON;");
-
-  // Init schema
-  db.run(initSql);
-
-  // Persist after every write
-  patchDb(db);
-
-  return db;
+  return client;
 }
 
-function persist() {
-  if (!db) return;
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(DB_PATH, buffer);
+/**
+ * Helper to run a query and return all rows as objects
+ */
+async function dbQuery(sql, params = []) {
+  const db = await getDb();
+  const res = await db.execute({ sql, args: params });
+  return res.rows;
 }
 
-function patchDb(dbInstance) {
-  const origRun = dbInstance.run.bind(dbInstance);
-  dbInstance.run = function(sql, params) {
-    const result = origRun(sql, params);
-    if (/^\s*(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|PRAGMA)/i.test(sql)) {
-      persist();
-    }
-    return result;
-  };
+/**
+ * Helper to run a query and return the first row as an object
+ */
+async function dbGet(sql, params = []) {
+  const rows = await dbQuery(sql, params);
+  return rows[0] || null;
 }
 
-module.exports = { getDb, persist };
+/**
+ * Helper to run a write query (alias for execute)
+ */
+async function dbRun(sql, params = []) {
+  const db = await getDb();
+  return await db.execute({ sql, args: params });
+}
+
+module.exports = { getDb, dbQuery, dbGet, dbRun };

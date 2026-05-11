@@ -385,6 +385,30 @@ pocketsplit/
 
 ---
 
+## 🚀 Deployment
+
+### 1. Push to GitHub
+```bash
+git init
+git add .
+git commit -m "Initial commit: PocketSplit with Turso Cloud DB"
+git branch -M main
+git remote add origin https://github.com/yourusername/pocketsplit.git
+git push -u origin main
+```
+
+### 2. Deploy to Vercel
+1. Connect your GitHub repo to Vercel.
+2. Set **Root Directory** to `client`.
+3. **IMPORTANT**: Add these **Environment Variables** in Vercel Dashboard:
+   - `TURSO_DATABASE_URL`: (Your Turso URL)
+   - `TURSO_AUTH_TOKEN`: (Your Turso Token)
+
+### 3. Database: Turso
+This app is pre-configured for **Turso**. Your data is stored in the cloud, meaning it stays permanent even when your server restarts or redeploys.
+
+---
+
 ## 🚀 Setup Instructions
 
 ### Prerequisites

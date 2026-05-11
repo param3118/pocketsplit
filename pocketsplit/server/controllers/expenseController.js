@@ -1,4 +1,4 @@
-const { getDb } = require('../db/database');
+const { dbQuery, dbGet, dbRun } = require('../db/database');
 const { generateTxnId } = require('../services/txnIdService');
 const {
   validateAmount,
@@ -6,21 +6,6 @@ const {
   validateShares,
   validateNonEmpty
 } = require('../utils/validators');
-
-function dbQuery(db, sql, params = []) {
-  const res = db.exec(sql, params);
-  if (!res.length) return [];
-  const [{ columns, values }] = res;
-  return values.map(row => {
-    const obj = {};
-    columns.forEach((col, i) => { obj[col] = row[i]; });
-    return obj;
-  });
-}
-
-function dbGet(db, sql, params = []) {
-  return dbQuery(db, sql, params)[0] || null;
-}
 
 /**
  * Equal split with integer-safe remainder distribution.
@@ -39,13 +24,12 @@ function computeEqualShares(totalAmount, participants) {
 
 // GET /expenses/:groupId
 async function getExpenses(req, res) {
-  const db = await getDb();
   const { groupId } = req.params;
 
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [groupId]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [groupId]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
-  const expenses = dbQuery(db,
+  const expenses = await dbQuery(
     `SELECT e.id, e.transaction_id, e.title, e.total_amount, e.split_type,
             e.note, e.created_at, e.paid_by,
             u.name as paid_by_name
@@ -57,8 +41,8 @@ async function getExpenses(req, res) {
   );
 
   // Attach shares and payment statuses
-  const enriched = expenses.map(exp => {
-    const shares = dbQuery(db,
+  const enriched = await Promise.all(expenses.map(async exp => {
+    const shares = await dbQuery(
       `SELECT es.user_id, u.name, es.share_amount,
               COALESCE(eps.is_paid, 0) as is_paid, eps.paid_at
        FROM expense_shares es
@@ -75,15 +59,14 @@ async function getExpenses(req, res) {
       shares,
       status: allPaid ? 'paid' : somePaid ? 'partial' : 'pending'
     };
-  });
+  }));
 
   res.json({ success: true, data: enriched });
 }
 
 // GET /expenses/detail/:id
 async function getExpenseDetail(req, res) {
-  const db = await getDb();
-  const exp = dbGet(db,
+  const exp = await dbGet(
     `SELECT e.*, u.name as paid_by_name FROM expenses e
      JOIN users u ON u.id = e.paid_by
      WHERE e.id = ? AND e.is_deleted = 0`,
@@ -91,7 +74,7 @@ async function getExpenseDetail(req, res) {
   );
   if (!exp) return res.status(404).json({ success: false, error: 'Expense not found' });
 
-  const shares = dbQuery(db,
+  const shares = await dbQuery(
     `SELECT es.user_id, u.name, es.share_amount,
             COALESCE(eps.is_paid, 0) as is_paid, eps.paid_at
      FROM expense_shares es
@@ -123,14 +106,12 @@ async function createExpense(req, res) {
     return res.status(400).json({ success: false, error: 'participants array is required and non-empty' });
   }
 
-  const db = await getDb();
-
   // Verify group
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [group_id]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [group_id]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
   // Verify payer is a group member
-  const payer = dbGet(db,
+  const payer = await dbGet(
     `SELECT u.id FROM users u JOIN group_members gm ON gm.user_id = u.id
      WHERE gm.group_id = ? AND u.id = ?`,
     [group_id, paid_by]
@@ -139,7 +120,7 @@ async function createExpense(req, res) {
 
   // Verify all participants are group members
   for (const uid of participants) {
-    const p = dbGet(db,
+    const p = await dbGet(
       `SELECT u.id FROM users u JOIN group_members gm ON gm.user_id = u.id
        WHERE gm.group_id = ? AND u.id = ?`,
       [group_id, uid]
@@ -165,20 +146,20 @@ async function createExpense(req, res) {
 
   const createdAt = date || new Date().toISOString();
 
-  db.run(
+  await dbRun(
     `INSERT INTO expenses (transaction_id, group_id, title, total_amount, paid_by, split_type, note, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [txnId, group_id, title.trim(), total_amount, paid_by, split_type, note || null, createdAt]
   );
 
-  const expense = dbGet(db, `SELECT * FROM expenses ORDER BY id DESC LIMIT 1`);
+  const expense = await dbGet(`SELECT * FROM expenses ORDER BY id DESC LIMIT 1`);
 
   for (const s of computedShares) {
-    db.run(
+    await dbRun(
       `INSERT INTO expense_shares (expense_id, user_id, share_amount) VALUES (?, ?, ?)`,
       [expense.id, s.user_id, s.share_amount]
     );
-    db.run(
+    await dbRun(
       `INSERT INTO expense_payment_status (expense_id, user_id, is_paid)
        VALUES (?, ?, ?)`,
       [expense.id, s.user_id, s.user_id === paid_by ? 1 : 0]
@@ -186,7 +167,7 @@ async function createExpense(req, res) {
   }
 
   // Update paid_at for payer
-  db.run(
+  await dbRun(
     `UPDATE expense_payment_status SET paid_at = datetime('now') WHERE expense_id = ? AND user_id = ?`,
     [expense.id, paid_by]
   );
@@ -197,9 +178,8 @@ async function createExpense(req, res) {
 // PUT /expenses/:id
 async function updateExpense(req, res) {
   const { title, total_amount, paid_by, split_type, note, participants, shares, date } = req.body;
-  const db = await getDb();
 
-  const existing = dbGet(db, `SELECT * FROM expenses WHERE id = ? AND is_deleted = 0`, [req.params.id]);
+  const existing = await dbGet(`SELECT * FROM expenses WHERE id = ? AND is_deleted = 0`, [req.params.id]);
   if (!existing) return res.status(404).json({ success: false, error: 'Expense not found' });
 
   const titleErr = validateNonEmpty(title, 'title');
@@ -229,44 +209,43 @@ async function updateExpense(req, res) {
 
   // Update expense
   if (date) {
-    db.run(
+    await dbRun(
       `UPDATE expenses SET title=?, total_amount=?, paid_by=?, split_type=?, note=?, created_at=? WHERE id=?`,
       [title.trim(), total_amount, paid_by, split_type, note || null, date, req.params.id]
     );
   } else {
-    db.run(
+    await dbRun(
       `UPDATE expenses SET title=?, total_amount=?, paid_by=?, split_type=?, note=? WHERE id=?`,
       [title.trim(), total_amount, paid_by, split_type, note || null, req.params.id]
     );
   }
 
   // Delete old shares and payment statuses
-  db.run(`DELETE FROM expense_shares WHERE expense_id = ?`, [req.params.id]);
-  db.run(`DELETE FROM expense_payment_status WHERE expense_id = ?`, [req.params.id]);
+  await dbRun(`DELETE FROM expense_shares WHERE expense_id = ?`, [req.params.id]);
+  await dbRun(`DELETE FROM expense_payment_status WHERE expense_id = ?`, [req.params.id]);
 
   for (const s of computedShares) {
-    db.run(`INSERT INTO expense_shares (expense_id, user_id, share_amount) VALUES (?,?,?)`,
+    await dbRun(`INSERT INTO expense_shares (expense_id, user_id, share_amount) VALUES (?,?,?)`,
       [req.params.id, s.user_id, s.share_amount]);
-    db.run(`INSERT INTO expense_payment_status (expense_id, user_id, is_paid) VALUES (?,?,?)`,
+    await dbRun(`INSERT INTO expense_payment_status (expense_id, user_id, is_paid) VALUES (?,?,?)`,
       [req.params.id, s.user_id, s.user_id === paid_by ? 1 : 0]);
   }
 
-  db.run(
+  await dbRun(
     `UPDATE expense_payment_status SET paid_at = datetime('now') WHERE expense_id = ? AND user_id = ?`,
     [req.params.id, paid_by]
   );
 
-  const updated = dbGet(db, `SELECT * FROM expenses WHERE id = ?`, [req.params.id]);
+  const updated = await dbGet(`SELECT * FROM expenses WHERE id = ?`, [req.params.id]);
   res.json({ success: true, data: updated });
 }
 
 // DELETE /expenses/:id  (soft delete)
 async function deleteExpense(req, res) {
-  const db = await getDb();
-  const existing = dbGet(db, `SELECT id FROM expenses WHERE id = ? AND is_deleted = 0`, [req.params.id]);
+  const existing = await dbGet(`SELECT id FROM expenses WHERE id = ? AND is_deleted = 0`, [req.params.id]);
   if (!existing) return res.status(404).json({ success: false, error: 'Expense not found' });
 
-  db.run(`UPDATE expenses SET is_deleted = 1 WHERE id = ?`, [req.params.id]);
+  await dbRun(`UPDATE expenses SET is_deleted = 1 WHERE id = ?`, [req.params.id]);
 
   res.json({ success: true, message: 'Expense deleted (soft) successfully' });
 }
@@ -278,12 +257,10 @@ async function markPaid(req, res) {
 
   if (!user_id) return res.status(400).json({ success: false, error: 'user_id is required' });
 
-  const db = await getDb();
-
-  const expense = dbGet(db, `SELECT id FROM expenses WHERE id = ? AND is_deleted = 0`, [expenseId]);
+  const expense = await dbGet(`SELECT id FROM expenses WHERE id = ? AND is_deleted = 0`, [expenseId]);
   if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
 
-  const paymentStatus = dbGet(db,
+  const paymentStatus = await dbGet(
     `SELECT id, is_paid FROM expense_payment_status WHERE expense_id = ? AND user_id = ?`,
     [expenseId, user_id]
   );
@@ -295,7 +272,7 @@ async function markPaid(req, res) {
     return res.status(400).json({ success: false, error: 'User is already marked as paid. Cannot reverse.' });
   }
 
-  db.run(
+  await dbRun(
     `UPDATE expense_payment_status SET is_paid = 1, paid_at = datetime('now') WHERE expense_id = ? AND user_id = ?`,
     [expenseId, user_id]
   );

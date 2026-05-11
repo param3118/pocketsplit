@@ -1,26 +1,9 @@
-const { getDb } = require('../db/database');
+const { dbQuery, dbGet, dbRun } = require('../db/database');
 const { validateNonEmpty } = require('../utils/validators');
-
-function dbQuery(db, sql, params = []) {
-  const res = db.exec(sql, params);
-  if (!res.length) return [];
-  const [{ columns, values }] = res;
-  return values.map(row => {
-    const obj = {};
-    columns.forEach((col, i) => { obj[col] = row[i]; });
-    return obj;
-  });
-}
-
-function dbGet(db, sql, params = []) {
-  const rows = dbQuery(db, sql, params);
-  return rows[0] || null;
-}
 
 // GET /groups
 async function getAllGroups(req, res) {
-  const db = await getDb();
-  const groups = dbQuery(db,
+  const groups = await dbQuery(
     `SELECT g.id, g.name, g.created_at,
        COUNT(DISTINCT gm.user_id) as member_count,
        COUNT(DISTINCT CASE WHEN e.is_deleted=0 THEN e.id END) as expense_count
@@ -35,15 +18,14 @@ async function getAllGroups(req, res) {
 
 // GET /groups/:id
 async function getGroup(req, res) {
-  const db = await getDb();
-  const group = dbGet(db,
+  const group = await dbGet(
     `SELECT g.id, g.name, g.created_at FROM groups_table g WHERE g.id = ?`,
     [req.params.id]
   );
   if (!group) {
     return res.status(404).json({ success: false, error: 'Group not found' });
   }
-  const members = dbQuery(db,
+  const members = await dbQuery(
     `SELECT u.id, u.name, u.created_at FROM users u
      JOIN group_members gm ON gm.user_id = u.id
      WHERE gm.group_id = ?`,
@@ -58,21 +40,19 @@ async function createGroup(req, res) {
   const nameErr = validateNonEmpty(name, 'name');
   if (nameErr) return res.status(400).json({ success: false, error: nameErr });
 
-  const db = await getDb();
-
-  db.run(`INSERT INTO groups_table (name) VALUES (?)`, [name.trim()]);
-  const group = dbGet(db, `SELECT * FROM groups_table ORDER BY id DESC LIMIT 1`);
+  await dbRun(`INSERT INTO groups_table (name) VALUES (?)`, [name.trim()]);
+  const group = await dbGet(`SELECT * FROM groups_table ORDER BY id DESC LIMIT 1`);
 
   // Optionally create members
   if (member_names && Array.isArray(member_names)) {
     for (const mName of member_names) {
       if (!mName || !mName.trim()) continue;
-      let user = dbGet(db, `SELECT id FROM users WHERE name = ?`, [mName.trim()]);
+      let user = await dbGet(`SELECT id FROM users WHERE name = ?`, [mName.trim()]);
       if (!user) {
-        db.run(`INSERT INTO users (name) VALUES (?)`, [mName.trim()]);
-        user = dbGet(db, `SELECT id FROM users ORDER BY id DESC LIMIT 1`);
+        await dbRun(`INSERT INTO users (name) VALUES (?)`, [mName.trim()]);
+        user = await dbGet(`SELECT id FROM users ORDER BY id DESC LIMIT 1`);
       }
-      db.run(`INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)`, [group.id, user.id]);
+      await dbRun(`INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)`, [group.id, user.id]);
     }
   }
 
@@ -85,25 +65,23 @@ async function updateGroup(req, res) {
   const nameErr = validateNonEmpty(name, 'name');
   if (nameErr) return res.status(400).json({ success: false, error: nameErr });
 
-  const db = await getDb();
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [req.params.id]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [req.params.id]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
-  db.run(`UPDATE groups_table SET name = ? WHERE id = ?`, [name.trim(), req.params.id]);
-  const updated = dbGet(db, `SELECT * FROM groups_table WHERE id = ?`, [req.params.id]);
+  await dbRun(`UPDATE groups_table SET name = ? WHERE id = ?`, [name.trim(), req.params.id]);
+  const updated = await dbGet(`SELECT * FROM groups_table WHERE id = ?`, [req.params.id]);
   res.json({ success: true, data: updated });
 }
 
 // DELETE /groups/:id
 async function deleteGroup(req, res) {
-  const db = await getDb();
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [req.params.id]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [req.params.id]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
   // Cascade will handle group_members, expenses (soft-delete not possible via FK)
   // Soft delete all expenses first
-  db.run(`UPDATE expenses SET is_deleted = 1 WHERE group_id = ?`, [req.params.id]);
-  db.run(`DELETE FROM groups_table WHERE id = ?`, [req.params.id]);
+  await dbRun(`UPDATE expenses SET is_deleted = 1 WHERE group_id = ?`, [req.params.id]);
+  await dbRun(`DELETE FROM groups_table WHERE id = ?`, [req.params.id]);
 
   res.json({ success: true, message: 'Group deleted successfully' });
 }

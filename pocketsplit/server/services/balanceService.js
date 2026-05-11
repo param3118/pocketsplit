@@ -1,4 +1,4 @@
-const { getDb } = require('../db/database');
+const { dbQuery } = require('../db/database');
 
 /**
  * Compute net balances for all members of a group.
@@ -9,72 +9,59 @@ const { getDb } = require('../db/database');
  * All amounts in integer paise/cents.
  */
 async function computeBalances(groupId) {
-  const db = await getDb();
-
   // Get group members
-  const membersRes = db.exec(
+  const members = await dbQuery(
     `SELECT u.id, u.name FROM users u
      JOIN group_members gm ON gm.user_id = u.id
      WHERE gm.group_id = ?`,
     [groupId]
   );
 
-  if (!membersRes.length || !membersRes[0].values.length) return [];
-
-  const members = membersRes[0].values.map(([id, name]) => ({ id, name }));
-  const memberIds = members.map(m => m.id);
+  if (!members.length) return [];
 
   const balanceMap = {};
-  memberIds.forEach(id => { balanceMap[id] = 0; });
+  members.forEach(m => { balanceMap[m.id] = 0; });
 
   // Active (non-deleted) expenses
-  const expensesRes = db.exec(
+  const expenses = await dbQuery(
     `SELECT e.id, e.paid_by, e.total_amount
      FROM expenses e
      WHERE e.group_id = ? AND e.is_deleted = 0`,
     [groupId]
   );
 
-  if (expensesRes.length && expensesRes[0].values.length) {
-    for (const [expId, paidBy, totalAmount] of expensesRes[0].values) {
-      // Payer gets credit for paying
-      if (balanceMap.hasOwnProperty(paidBy)) {
-        balanceMap[paidBy] += totalAmount;
-      }
+  for (const exp of expenses) {
+    // Payer gets credit for paying
+    if (balanceMap.hasOwnProperty(exp.paid_by)) {
+      balanceMap[exp.paid_by] += exp.total_amount;
+    }
 
-      // Deduct each participant's share, but only if they haven't paid their share
-      const sharesRes = db.exec(
-        `SELECT es.user_id, es.share_amount, COALESCE(eps.is_paid, 0) as is_paid
-         FROM expense_shares es
-         LEFT JOIN expense_payment_status eps 
-           ON eps.expense_id = es.expense_id AND eps.user_id = es.user_id
-         WHERE es.expense_id = ?`,
-        [expId]
-      );
+    // Deduct each participant's share
+    const shares = await dbQuery(
+      `SELECT es.user_id, es.share_amount
+       FROM expense_shares es
+       WHERE es.expense_id = ?`,
+      [exp.id]
+    );
 
-      if (sharesRes.length && sharesRes[0].values.length) {
-        for (const [userId, shareAmount, isPaid] of sharesRes[0].values) {
-          if (!balanceMap.hasOwnProperty(userId)) continue;
-          // Owe their share regardless; if paid via mark-paid, we handle via payment status
-          balanceMap[userId] -= shareAmount;
-        }
+    for (const s of shares) {
+      if (balanceMap.hasOwnProperty(s.user_id)) {
+        balanceMap[s.user_id] -= s.share_amount;
       }
     }
   }
 
   // Settlements
-  const settlementsRes = db.exec(
+  const settlements = await dbQuery(
     `SELECT payer_id, receiver_id, amount
      FROM settlements
      WHERE group_id = ?`,
     [groupId]
   );
 
-  if (settlementsRes.length && settlementsRes[0].values.length) {
-    for (const [payerId, receiverId, amount] of settlementsRes[0].values) {
-      if (balanceMap.hasOwnProperty(payerId)) balanceMap[payerId] -= amount;
-      if (balanceMap.hasOwnProperty(receiverId)) balanceMap[receiverId] += amount;
-    }
+  for (const sett of settlements) {
+    if (balanceMap.hasOwnProperty(sett.payer_id)) balanceMap[sett.payer_id] -= sett.amount;
+    if (balanceMap.hasOwnProperty(sett.receiver_id)) balanceMap[sett.receiver_id] += sett.amount;
   }
 
   return members.map(m => ({

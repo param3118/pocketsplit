@@ -1,29 +1,13 @@
-const { getDb } = require('../db/database');
+const { dbQuery, dbGet, dbRun } = require('../db/database');
 const { computeBalances, simplifyDebts } = require('../services/balanceService');
 const { generateTxnId } = require('../services/txnIdService');
 const { validateAmount, validateNonEmpty } = require('../utils/validators');
 
-function dbQuery(db, sql, params = []) {
-  const res = db.exec(sql, params);
-  if (!res.length) return [];
-  const [{ columns, values }] = res;
-  return values.map(row => {
-    const obj = {};
-    columns.forEach((col, i) => { obj[col] = row[i]; });
-    return obj;
-  });
-}
-
-function dbGet(db, sql, params = []) {
-  return dbQuery(db, sql, params)[0] || null;
-}
-
 // GET /balances/:groupId
 async function getBalances(req, res) {
-  const db = await getDb();
   const { groupId } = req.params;
 
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [groupId]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [groupId]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
   const balances = await computeBalances(groupId);
@@ -55,14 +39,12 @@ async function createSettlement(req, res) {
     return res.status(400).json({ success: false, error: 'Payer and receiver cannot be the same' });
   }
 
-  const db = await getDb();
-
-  const group = dbGet(db, `SELECT id FROM groups_table WHERE id = ?`, [group_id]);
+  const group = await dbGet(`SELECT id FROM groups_table WHERE id = ?`, [group_id]);
   if (!group) return res.status(404).json({ success: false, error: 'Group not found' });
 
   // Verify both are group members
   for (const uid of [payer_id, receiver_id]) {
-    const m = dbGet(db,
+    const m = await dbGet(
       `SELECT user_id FROM group_members WHERE group_id = ? AND user_id = ?`,
       [group_id, uid]
     );
@@ -71,23 +53,22 @@ async function createSettlement(req, res) {
 
   const txnId = await generateTxnId('SET');
 
-  db.run(
+  await dbRun(
     `INSERT INTO settlements (transaction_id, group_id, payer_id, receiver_id, amount, note)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [txnId, group_id, payer_id, receiver_id, amount, note || null]
   );
 
-  const settlement = dbGet(db, `SELECT * FROM settlements ORDER BY id DESC LIMIT 1`);
+  const settlement = await dbGet(`SELECT * FROM settlements ORDER BY id DESC LIMIT 1`);
 
   res.status(201).json({ success: true, data: settlement });
 }
 
 // GET /settlements/:groupId
 async function getSettlements(req, res) {
-  const db = await getDb();
   const { groupId } = req.params;
 
-  const settlements = dbQuery(db,
+  const settlements = await dbQuery(
     `SELECT s.*, p.name as payer_name, r.name as receiver_name
      FROM settlements s
      JOIN users p ON p.id = s.payer_id
