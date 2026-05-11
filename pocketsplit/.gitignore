@@ -1,0 +1,7 @@
+node_modules
+.DS_Store
+pocketsplit.db
+pocketsplit.db-journal
+client/build
+client/node_modules
+.env
