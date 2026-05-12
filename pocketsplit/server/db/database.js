@@ -7,10 +7,31 @@ let client = null;
 async function getDb() {
   if (client) return client;
 
-  client = createClient({
-    url: process.env.TURSO_DATABASE_URL,
-    authToken: process.env.TURSO_AUTH_TOKEN,
-  });
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+  const tursoToken = process.env.TURSO_AUTH_TOKEN;
+  const dbPath = process.env.DB_PATH || './pocketsplit.db';
+
+  let url;
+  let authToken;
+
+  if (tursoUrl && tursoToken) {
+    console.log('🔌 Connecting to Turso Database...');
+    url = tursoUrl;
+    authToken = tursoToken;
+  } else {
+    console.log(`📂 Using Local SQLite: ${dbPath}`);
+    url = `file:${dbPath}`;
+    
+    // Ensure directory exists if path includes one
+    const fs = require('fs');
+    const path = require('path');
+    const dir = path.dirname(dbPath);
+    if (dir !== '.' && !fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  client = createClient({ url, authToken });
 
   // Enable foreign keys
   await client.execute("PRAGMA foreign_keys=ON;");

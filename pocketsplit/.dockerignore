@@ -1,0 +1,15 @@
+node_modules
+client/node_modules
+npm-debug.log
+.git
+.env
+pocketsplit.db
+data
+screenshots
+.github
+*.md
+Dockerfile
+.dockerignore
+.gitignore
+vercel.json
+api

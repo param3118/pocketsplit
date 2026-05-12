@@ -8,10 +8,39 @@ const { seed } = require('./db/seed');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const morgan = require('morgan');
+
+// Logging
+app.use(morgan(':method :url :status :res[content-length] - :response-time ms'));
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Health check endpoints
+app.get('/health', async (req, res) => {
+  try {
+    const db = await getDb();
+    await db.execute("SELECT 1");
+    res.json({
+      status: "ok",
+      service: "PocketSplit API",
+      database: "connected",
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(503).json({
+      status: "error",
+      service: "PocketSplit API",
+      database: "disconnected",
+      error: err.message
+    });
+  }
+});
+
+app.get('/ready', (req, res) => {
+  res.json({ status: "ready" });
+});
 
 // API Routes
 app.use('/api', routes);
