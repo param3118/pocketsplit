@@ -2,17 +2,14 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { errorHandler } = require('./middleware/errorHandler');
+const { logger } = require('./middleware/logger');
 const routes = require('./routes/index');
 const { getDb } = require('./db/database');
 const { seed } = require('./db/seed');
 
 const app = express();
+app.use(logger);
 const PORT = process.env.PORT || 5000;
-const morgan = require('morgan');
-
-// Logging
-app.use(morgan(':method :url :status :res[content-length] - :response-time ms'));
-
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -44,6 +41,15 @@ app.get('/ready', (req, res) => {
 
 // API Routes
 app.use('/api', routes);
+
+// Health Check
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'UP', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
 // Serve static frontend in production
 app.use(express.static(path.join(__dirname, '../client/build')));

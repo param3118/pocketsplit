@@ -1,86 +1,60 @@
-# PocketSplit Operational Runbook
+# 📓 PocketSplit Operational Runbook
 
-This document provides instructions for managing the PocketSplit service in production.
+> **Target Service**: PocketSplit Expense Tracker  
+> **Infrastructure**: Containerized (Docker) / Cloud Hosted  
+> **Criticality**: Medium (Financial Data)
 
-## 1. How to Start Service
+---
 
-### Using Docker (Recommended)
+## 🚀 1. Deployment Procedures
+
+### How to deploy a new version
+1. **Commit to Main**: Any push to the `main` branch triggers the GitHub Action.
+2. **CI Pipeline**: The pipeline lints, tests, and builds a new Docker image.
+3. **Registry**: The image is pushed to `ghcr.io/yourusername/pocketsplit:latest`.
+4. **Auto-Deploy**: If using Render/Railway, enable "Auto-deploy from Image" or update the tag manually.
+
+### How to rollback
+If a deployment causes issues:
+1. Identify the previous stable image tag in GitHub Packages (e.g., `ghcr.io/...:sha-12345`).
+2. Update your hosting provider (Render/Railway) to point to the specific stable tag instead of `latest`.
+3. Revert the problematic commit in Git: `git revert HEAD && git push`.
+
+---
+
+## 🚨 2. Incident Response (The 2 AM Drill)
+
+### Scenario: Service is DOWN (5xx errors or Connection Refused)
+1. **Check Health Endpoint**: Visit `https://your-app.com/api/health`.
+2. **Check Logs**:
+   - Run `docker logs <container_id>` or view Logs tab in Render/Railway.
+   - Look for `Error: SQL_PARSE_ERROR` or `Turso connection failed`.
+3. **Database Check**: Visit the Turso Dashboard. Check if the database is "Over quota" or "Down".
+4. **Environment Variables**: Verify `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` haven't expired.
+
+### Scenario: High Latency
+1. Check the Turso region. Ensure it matches your server region (e.g., both in `aws-ap-south-1`).
+2. Check for long-running queries in the dashboard.
+
+---
+
+## 🛠 3. Maintenance
+
+### Manual Seeding
+To reset or re-seed the demo data:
+1. Connect to the container.
+2. Run `node server/db/seed.js`.
+*(Note: The app auto-seeds on first run if the database is empty).*
+
+### Database Backups
+Turso handles point-in-time recovery, but you can export data via:
 ```bash
-docker build -t pocketsplit .
-docker run -d \
-  -p 5000:5000 \
-  -v pocketsplit_data:/app/data \
-  --name pocketsplit-api \
-  pocketsplit
+turso db shell pocker-split-param ".dump" > backup.sql
 ```
 
-### Locally
-```bash
-npm install
-cd client && npm install && npm run build
-cd ..
-npm start
-```
+---
 
-## 2. How to Restart Service
-```bash
-docker restart pocketsplit-api
-```
-
-## 3. How to Inspect Logs
-```bash
-docker logs -f pocketsplit-api
-```
-
-## 4. How to Verify Health
-Check the `/health` endpoint:
-
-**Local**:
-```bash
-curl http://localhost:5000/health
-```
-
-**Production**:
-```bash
-curl https://pocketsplit-five.vercel.app/health
-```
-Expected response:
-```json
-{
-  "status": "ok",
-  "service": "PocketSplit API",
-  "database": "connected"
-}
-```
-
-## 5. Common Failure Scenarios
-
-### SQLite DB Missing
-- **Symptoms**: Health check shows `database: disconnected`.
-- **Cause**: Volume mount failure or path mismatch.
-- **Fix**: Check `DB_PATH` env var and volume mount in docker run command.
-
-### Port Conflict
-- **Symptoms**: Container fails to start; logs show `EADDRINUSE`.
-- **Fix**: Change host port mapping (e.g., `-p 5001:5000`).
-
-### Backend Crash
-- **Symptoms**: 502/504 errors from proxy; container status `Exited`.
-- **Fix**: Check `docker logs` for stack traces. Restart with `docker restart`.
-
-## 6. Recovery Procedures
-
-### Data Corruption
-1. Stop the container.
-2. Restore `pocketsplit.db` from the last known good backup in the volume.
-3. Start the container.
-
-### Failed Deployment
-1. Rollback to previous Docker image tag.
-2. Investigate CI/CD logs in GitHub Actions.
-
-## 7. Deployment Checklist
-- [ ] Environment variables configured in production.
-- [ ] Volume mount correctly mapped for persistence.
-- [ ] Port 5000 exposed and accessible.
-- [ ] Health check passing.
+## 📞 4. Contacts
+- **Primary Engineer**: @param3118
+- **DB Provider**: Turso (https://turso.tech)
+- **CI/CD**: GitHub Actions
