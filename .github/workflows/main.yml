@@ -26,12 +26,13 @@ jobs:
         with:
           node-version: 18
           cache: 'npm'
+          cache-dependency-path: pocketsplit/package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: cd pocketsplit && npm install
 
       - name: Run Tests
-        run: npx mocha server/test.js
+        run: cd pocketsplit && npx mocha server/test.js
 
       - name: Log in to the Container registry
         if: github.event_name != 'pull_request'

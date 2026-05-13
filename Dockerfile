@@ -1,9 +1,10 @@
 # --- Stage 1: Build Frontend ---
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app/client
-COPY client/package*.json ./
+# Look inside the pocketsplit subdirectory
+COPY pocketsplit/client/package*.json ./
 RUN npm install
-COPY client/ ./
+COPY pocketsplit/client/ ./
 RUN npm run build
 
 # --- Stage 2: Final Image ---
@@ -11,12 +12,12 @@ FROM node:18-alpine
 WORKDIR /app
 
 # Install production dependencies for backend
-COPY package*.json ./
+COPY pocketsplit/package*.json ./
 RUN npm install --production
 
-# Copy backend code
-COPY server/ ./server/
-COPY api/ ./api/
+# Copy backend code from the subdirectory
+COPY pocketsplit/server/ ./server/
+COPY pocketsplit/api/ ./api/
 
 # Copy built frontend from Stage 1
 COPY --from=frontend-builder /app/client/build ./client/build
