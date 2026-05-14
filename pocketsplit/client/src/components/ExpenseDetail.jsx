@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { fetchExpenseDetail, markPaid, updateExpense } from '../api/api';
+import { fetchExpenseDetail, markPaid, markSent, updateExpense } from '../api/api';
 import { formatAmount, formatDate, toPaise, formatDateKey } from '../utils';
 
-export default function ExpenseDetail({ expenseId, onClose, onUpdated }) {
+export default function ExpenseDetail({ expenseId, currentUser, onClose, onUpdated }) {
   const [expense, setExpense] = useState(null);
   const [loading, setLoading] = useState(true);
   const [markingPaid, setMarkingPaid] = useState(null);
@@ -61,6 +61,20 @@ export default function ExpenseDetail({ expenseId, onClose, onUpdated }) {
       setError(e.response?.data?.error || 'Update failed');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleMarkSent(userId) {
+    setMarkingPaid(userId);
+    setError('');
+    try {
+      await markSent(expenseId, userId);
+      await loadDetail();
+      onUpdated();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to mark as sent');
+    } finally {
+      setMarkingPaid(null);
     }
   }
 
@@ -166,46 +180,72 @@ export default function ExpenseDetail({ expenseId, onClose, onUpdated }) {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {(expense.shares || []).map(share => {
-                  const isPaid = share.is_paid === 1 || share.is_paid === true;
+                  const status = share.is_paid; // 0, 1, 2
+                  const isVerified = status === 2;
+                  const isSent = status === 1;
+                  
+                  // Permissions
+                  const isMe = currentUser?.id === share.user_id;
+                  const amICreditor = currentUser?.id === expense.paid_by;
+
+                  let statusText = '○ Pending';
+                  let statusColor = 'var(--text-muted)';
+                  if (isSent) { statusText = '🟡 Sent (Pending Verification)'; statusColor = 'var(--orange)'; }
+                  if (isVerified) { statusText = '✅ Verified & Paid'; statusColor = 'var(--green)'; }
+
                   return (
                     <div key={share.user_id} style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: '10px 12px', borderRadius: 8,
-                      background: isPaid ? 'var(--green-dim)' : 'var(--bg)',
-                      border: `1px solid ${isPaid ? 'rgba(34,197,94,0.15)' : 'var(--border)'}`
+                      background: isVerified ? 'var(--green-dim)' : isSent ? 'var(--orange-dim)' : 'var(--bg)',
+                      border: `1px solid ${isVerified ? 'rgba(34,197,94,0.15)' : isSent ? 'rgba(245,158,11,0.15)' : 'var(--border)'}`
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{
                           width: 28, height: 28, borderRadius: 6,
-                          background: isPaid ? 'rgba(34,197,94,0.2)' : 'var(--accent-dim)',
+                          background: isVerified ? 'rgba(34,197,94,0.2)' : isSent ? 'rgba(245,158,11,0.2)' : 'var(--accent-dim)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           fontSize: 12, fontWeight: 700,
-                          color: isPaid ? 'var(--green)' : 'var(--accent-light)'
+                          color: isVerified ? 'var(--green)' : isSent ? 'var(--orange)' : 'var(--accent-light)'
                         }}>
                           {share.name?.[0]}
                         </div>
                         <div>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{share.name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                            {isPaid ? `✓ Paid${share.paid_at ? ' • ' + formatDate(share.paid_at) : ''}` : '○ Pending'}
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{share.name} {isMe && <span style={{fontSize: 10, opacity: 0.6}}>(You)</span>}</div>
+                          <div style={{ fontSize: 11, color: statusColor }}>
+                            {statusText} {isVerified && share.paid_at && ` • ${formatDate(share.paid_at)}`}
                           </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{
                           fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700,
-                          color: isPaid ? 'var(--green)' : 'var(--text-primary)'
+                          color: isVerified ? 'var(--green)' : 'var(--text-primary)'
                         }}>
                           {formatAmount(share.share_amount)}
                         </span>
-                        {!isPaid && (
+                        
+                        {/* Handshake Step 1: Debtor marks as Sent */}
+                        {!isVerified && !isSent && isMe && (
+                          <button
+                            className="btn btn-warning btn-sm"
+                            onClick={() => handleMarkSent(share.user_id)}
+                            disabled={markingPaid === share.user_id}
+                            style={{ padding: '4px 10px', fontSize: 11 }}
+                          >
+                            {markingPaid === share.user_id ? '...' : '🟡 Mark Sent'}
+                          </button>
+                        )}
+
+                        {/* Handshake Step 2: Creditor marks as Verified */}
+                        {!isVerified && amICreditor && share.user_id !== expense.paid_by && (
                           <button
                             className="btn btn-success btn-sm"
                             onClick={() => handleMarkPaid(share.user_id)}
                             disabled={markingPaid === share.user_id}
                             style={{ padding: '4px 10px', fontSize: 11 }}
                           >
-                            {markingPaid === share.user_id ? '...' : '✓ Mark Paid'}
+                            {markingPaid === share.user_id ? '...' : isSent ? '✅ Verify Receipt' : '✓ Mark Paid'}
                           </button>
                         )}
                       </div>

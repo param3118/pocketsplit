@@ -25,6 +25,7 @@ router.get('/expense/detail/:id', asyncHandler(expenseCtrl.getExpenseDetail));
 router.post('/expenses', asyncHandler(expenseCtrl.createExpense));
 router.put('/expenses/:id', asyncHandler(expenseCtrl.updateExpense));
 router.delete('/expenses/:id', asyncHandler(expenseCtrl.deleteExpense));
+router.post('/expenses/:id/mark-sent', asyncHandler(expenseCtrl.markSent));
 router.post('/expenses/:id/mark-paid', asyncHandler(expenseCtrl.markPaid));
 
 // Balances & Debt Simplification

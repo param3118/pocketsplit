@@ -22,6 +22,24 @@ export default function App() {
   const [groupManagerMode, setGroupManagerMode] = useState('edit');
   const [activeTab, setActiveTab] = useState('timeline');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Load identity from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('pocketsplit_user');
+    if (saved) {
+      try { setCurrentUser(JSON.parse(saved)); } catch(e) {}
+    }
+  }, []);
+
+  const selectUser = (user) => {
+    setCurrentUser(user);
+    if (user) {
+      localStorage.setItem('pocketsplit_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('pocketsplit_user');
+    }
+  };
 
   // Load groups on mount
   useEffect(() => {
@@ -83,6 +101,9 @@ export default function App() {
       <Header
         group={currentGroup}
         groups={groups}
+        members={members}
+        currentUser={currentUser}
+        onUserSelect={selectUser}
         onGroupChange={g => { setCurrentGroup(g); }}
         onNewGroup={() => { setGroupManagerMode('create'); setShowGroupManager(true); }}
       />
@@ -145,7 +166,11 @@ export default function App() {
                 </div>
 
                 {activeTab === 'timeline' && (
-                  <ExpenseTimeline expenses={expenses} onRefresh={refresh} />
+                  <ExpenseTimeline 
+                    expenses={expenses} 
+                    onRefresh={refresh} 
+                    currentUser={currentUser}
+                  />
                 )}
 
                 {activeTab === 'balances' && (

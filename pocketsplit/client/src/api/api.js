@@ -24,6 +24,8 @@ export const fetchExpenseDetail = (id) => api.get(`/expense/detail/${id}`).then(
 export const createExpense = (data) => api.post('/expenses', data).then(r => r.data.data);
 export const updateExpense = (id, data) => api.put(`/expenses/${id}`, data).then(r => r.data.data);
 export const deleteExpense = (id) => api.delete(`/expenses/${id}`).then(r => r.data);
+export const markSent = (expenseId, userId) =>
+  api.post(`/expenses/${expenseId}/mark-sent`, { user_id: userId }).then(r => r.data);
 export const markPaid = (expenseId, userId) =>
   api.post(`/expenses/${expenseId}/mark-paid`, { user_id: userId }).then(r => r.data);
 

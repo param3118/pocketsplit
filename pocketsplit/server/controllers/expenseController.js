@@ -52,12 +52,12 @@ async function getExpenses(req, res) {
        WHERE es.expense_id = ?`,
       [exp.id]
     );
-    const allPaid = shares.length > 0 && shares.every(s => s.is_paid);
-    const somePaid = shares.some(s => s.is_paid);
+    const allVerified = shares.length > 0 && shares.every(s => s.is_paid === 2);
+    const anySentOrVerified = shares.some(s => s.is_paid >= 1);
     return {
       ...exp,
       shares,
-      status: allPaid ? 'paid' : somePaid ? 'partial' : 'pending'
+      status: allVerified ? 'paid' : anySentOrVerified ? 'partial' : 'pending'
     };
   }));
 
@@ -162,7 +162,7 @@ async function createExpense(req, res) {
     await dbRun(
       `INSERT INTO expense_payment_status (expense_id, user_id, is_paid)
        VALUES (?, ?, ?)`,
-      [expense.id, s.user_id, s.user_id === paid_by ? 1 : 0]
+      [expense.id, s.user_id, s.user_id === paid_by ? 2 : 0]
     );
   }
 
@@ -228,7 +228,7 @@ async function updateExpense(req, res) {
     await dbRun(`INSERT INTO expense_shares (expense_id, user_id, share_amount) VALUES (?,?,?)`,
       [req.params.id, s.user_id, s.share_amount]);
     await dbRun(`INSERT INTO expense_payment_status (expense_id, user_id, is_paid) VALUES (?,?,?)`,
-      [req.params.id, s.user_id, s.user_id === paid_by ? 1 : 0]);
+      [req.params.id, s.user_id, s.user_id === paid_by ? 2 : 0]);
   }
 
   await dbRun(
@@ -250,34 +250,50 @@ async function deleteExpense(req, res) {
   res.json({ success: true, message: 'Expense deleted (soft) successfully' });
 }
 
-// POST /expenses/:id/mark-paid
+// POST /expenses/:id/mark-sent (Handshake Step 1: Debtor says "I paid")
+async function markSent(req, res) {
+  const { user_id } = req.body;
+  const { id: expenseId } = req.params;
+
+  if (!user_id) return res.status(400).json({ success: false, error: 'user_id is required' });
+
+  const status = await dbGet(
+    `SELECT is_paid FROM expense_payment_status WHERE expense_id = ? AND user_id = ?`,
+    [expenseId, user_id]
+  );
+
+  if (!status) return res.status(404).json({ success: false, error: 'User not a participant' });
+  if (status.is_paid !== 0) return res.status(400).json({ success: false, error: 'Status is already beyond Pending' });
+
+  await dbRun(
+    `UPDATE expense_payment_status SET is_paid = 1 WHERE expense_id = ? AND user_id = ?`,
+    [expenseId, user_id]
+  );
+
+  res.json({ success: true, message: 'Marked as Sent. Waiting for creditor verification.' });
+}
+
+// POST /expenses/:id/mark-paid (Handshake Step 2: Creditor says "I received")
 async function markPaid(req, res) {
   const { user_id } = req.body;
   const { id: expenseId } = req.params;
 
   if (!user_id) return res.status(400).json({ success: false, error: 'user_id is required' });
 
-  const expense = await dbGet(`SELECT id FROM expenses WHERE id = ? AND is_deleted = 0`, [expenseId]);
-  if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
-
-  const paymentStatus = await dbGet(
-    `SELECT id, is_paid FROM expense_payment_status WHERE expense_id = ? AND user_id = ?`,
+  const status = await dbGet(
+    `SELECT is_paid FROM expense_payment_status WHERE expense_id = ? AND user_id = ?`,
     [expenseId, user_id]
   );
 
-  if (!paymentStatus) return res.status(404).json({ success: false, error: 'User not a participant in this expense' });
-
-  // One-way state transition: PENDING → PAID only
-  if (paymentStatus.is_paid) {
-    return res.status(400).json({ success: false, error: 'User is already marked as paid. Cannot reverse.' });
-  }
+  if (!status) return res.status(404).json({ success: false, error: 'User not a participant' });
+  if (status.is_paid === 2) return res.status(400).json({ success: false, error: 'User is already verified as PAID.' });
 
   await dbRun(
-    `UPDATE expense_payment_status SET is_paid = 1, paid_at = datetime('now') WHERE expense_id = ? AND user_id = ?`,
+    `UPDATE expense_payment_status SET is_paid = 2, paid_at = datetime('now') WHERE expense_id = ? AND user_id = ?`,
     [expenseId, user_id]
   );
 
-  res.json({ success: true, message: 'Marked as paid successfully' });
+  res.json({ success: true, message: 'Payment verified and settled.' });
 }
 
-module.exports = { getExpenses, getExpenseDetail, createExpense, updateExpense, deleteExpense, markPaid };
+module.exports = { getExpenses, getExpenseDetail, createExpense, updateExpense, deleteExpense, markSent, markPaid };

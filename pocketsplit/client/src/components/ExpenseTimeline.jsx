@@ -3,7 +3,7 @@ import { formatAmount, formatDateDisplay, formatDateKey, groupByDate } from '../
 import { deleteExpense } from '../api/api';
 import ExpenseDetail from './ExpenseDetail';
 
-export default function ExpenseTimeline({ expenses, onRefresh }) {
+export default function ExpenseTimeline({ expenses, onRefresh, currentUser }) {
   const [expandedDays, setExpandedDays] = useState(new Set());
 
   const [selectedExpense, setSelectedExpense] = useState(null);
@@ -153,6 +153,7 @@ export default function ExpenseTimeline({ expenses, onRefresh }) {
       {selectedExpense && (
         <ExpenseDetail
           expenseId={selectedExpense}
+          currentUser={currentUser}
           onClose={() => setSelectedExpense(null)}
           onUpdated={() => { onRefresh(); }}
         />

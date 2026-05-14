@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function Header({ group, onGroupChange, groups, onNewGroup }) {
+export default function Header({ group, onGroupChange, groups, onNewGroup, members = [], currentUser, onUserSelect }) {
   return (
     <header style={{
       borderBottom: '1px solid var(--border)',
@@ -47,6 +47,34 @@ export default function Header({ group, onGroupChange, groups, onNewGroup }) {
             ))}
           </select>
         )}
+
+        {/* User Selector */}
+        <select
+          value={currentUser?.id || ''}
+          onChange={e => {
+            const val = e.target.value;
+            if (!val) {
+              onUserSelect(null);
+            } else {
+              const u = members.find(m => m.id === parseInt(val));
+              if (u) onUserSelect(u);
+            }
+          }}
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: 8, padding: '6px 12px',
+            color: 'var(--text-primary)', fontSize: 13,
+            fontFamily: 'var(--font-sans)', cursor: 'pointer',
+            outline: 'none',
+            maxWidth: 140
+          }}
+        >
+          <option value="">👤 Guest</option>
+          {members.map(m => (
+            <option key={m.id} value={m.id}>🎭 {m.name}</option>
+          ))}
+        </select>
 
         <button className="btn btn-secondary btn-sm" onClick={onNewGroup}>
           + New Group
