@@ -21,6 +21,9 @@ export default function Header({ group, onGroupChange, groups, onNewGroup, membe
           <span style={{ fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em' }}>
             Pocket<span style={{ color: 'var(--accent-light)' }}>Split</span>
           </span>
+          <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+            v1.0
+          </span>
         </div>
 
         <div style={{ flex: 1 }} />
