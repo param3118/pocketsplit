@@ -3,11 +3,13 @@ import { fetchMembers, addMember, removeMember, createGroup, updateGroup, delete
 
 export default function GroupManager({ group, mode, onClose, onRefresh }) {
   const [name, setName] = useState(group?.name || '');
+  const [passkey, setPasskey] = useState('');
   const [members, setMembers] = useState([]);
   const [newMember, setNewMember] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
 
   useEffect(() => {
     if (group && mode !== 'create') loadMembers();
@@ -25,8 +27,13 @@ export default function GroupManager({ group, mode, onClose, onRefresh }) {
     setLoading(true); setError('');
     try {
       if (mode === 'create') {
-        await createGroup({ name: name.trim() });
+        const newGroup = await createGroup({ name: name.trim(), passkey: passkey || undefined });
+        // Store passkey in session if set
+        if (passkey && newGroup?.id) {
+          sessionStorage.setItem(`passkey_${newGroup.id}`, passkey);
+        }
         onRefresh(); onClose();
+
       } else {
         await updateGroup(group.id, { name: name.trim() });
         setSuccess('Group name updated!');
@@ -109,6 +116,18 @@ export default function GroupManager({ group, mode, onClose, onRefresh }) {
             </button>
           </div>
         </div>
+
+        {/* Passkey (only when creating) */}
+        {mode === 'create' && (
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelStyle}>Group Passkey (optional)</label>
+            <input className="input" value={passkey} onChange={e => setPasskey(e.target.value)}
+              placeholder="Leave empty for public group" type="password" />
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+              🔒 If set, members must enter this passkey to access the group.
+            </div>
+          </div>
+        )}
 
         {/* Members (only when editing) */}
         {mode !== 'create' && (

@@ -178,9 +178,15 @@ async function createExpense(req, res) {
 // PUT /expenses/:id
 async function updateExpense(req, res) {
   const { title, total_amount, paid_by, split_type, note, participants, shares, date } = req.body;
+  const actingUserId = parseInt(req.headers['x-user-id']);
 
   const existing = await dbGet(`SELECT * FROM expenses WHERE id = ? AND is_deleted = 0`, [req.params.id]);
   if (!existing) return res.status(404).json({ success: false, error: 'Expense not found' });
+  
+  if (actingUserId && existing.paid_by !== actingUserId) {
+    return res.status(403).json({ success: false, error: 'Only the creditor can edit this expense' });
+  }
+
 
   const titleErr = validateNonEmpty(title, 'title');
   if (titleErr) return res.status(400).json({ success: false, error: titleErr });
@@ -242,8 +248,14 @@ async function updateExpense(req, res) {
 
 // DELETE /expenses/:id  (soft delete)
 async function deleteExpense(req, res) {
-  const existing = await dbGet(`SELECT id FROM expenses WHERE id = ? AND is_deleted = 0`, [req.params.id]);
+  const actingUserId = parseInt(req.headers['x-user-id']);
+  const existing = await dbGet(`SELECT id, paid_by FROM expenses WHERE id = ? AND is_deleted = 0`, [req.params.id]);
   if (!existing) return res.status(404).json({ success: false, error: 'Expense not found' });
+
+  if (actingUserId && existing.paid_by !== actingUserId) {
+    return res.status(403).json({ success: false, error: 'Only the creditor can delete this expense' });
+  }
+
 
   await dbRun(`UPDATE expenses SET is_deleted = 1 WHERE id = ?`, [req.params.id]);
 
@@ -254,8 +266,14 @@ async function deleteExpense(req, res) {
 async function markSent(req, res) {
   const { user_id } = req.body;
   const { id: expenseId } = req.params;
+  const actingUserId = parseInt(req.headers['x-user-id']);
 
   if (!user_id) return res.status(400).json({ success: false, error: 'user_id is required' });
+  
+  if (actingUserId && actingUserId !== parseInt(user_id)) {
+    return res.status(403).json({ success: false, error: 'Only the debtor can mark their own share as sent' });
+  }
+
 
   const status = await dbGet(
     `SELECT is_paid FROM expense_payment_status WHERE expense_id = ? AND user_id = ?`,
@@ -277,8 +295,17 @@ async function markSent(req, res) {
 async function markPaid(req, res) {
   const { user_id } = req.body;
   const { id: expenseId } = req.params;
+  const actingUserId = parseInt(req.headers['x-user-id']);
 
   if (!user_id) return res.status(400).json({ success: false, error: 'user_id is required' });
+
+  const expense = await dbGet(`SELECT paid_by FROM expenses WHERE id = ?`, [expenseId]);
+  if (!expense) return res.status(404).json({ success: false, error: 'Expense not found' });
+
+  if (actingUserId && expense.paid_by !== actingUserId) {
+    return res.status(403).json({ success: false, error: 'Only the creditor can verify this payment' });
+  }
+
 
   const status = await dbGet(
     `SELECT is_paid FROM expense_payment_status WHERE expense_id = ? AND user_id = ?`,

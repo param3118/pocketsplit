@@ -25,8 +25,13 @@ async function getBalances(req, res) {
 // POST /settlements
 async function createSettlement(req, res) {
   const { group_id, payer_id, receiver_id, amount, note } = req.body;
+  const actingUserId = parseInt(req.headers['x-user-id']);
 
   if (!group_id) return res.status(400).json({ success: false, error: 'group_id is required' });
+
+  if (actingUserId && actingUserId !== parseInt(payer_id)) {
+    return res.status(403).json({ success: false, error: 'Only the payer can record this settlement' });
+  }
 
   const amtErr = validateAmount(amount);
   if (amtErr) return res.status(400).json({ success: false, error: amtErr });

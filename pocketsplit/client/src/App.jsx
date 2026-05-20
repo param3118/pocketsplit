@@ -7,7 +7,8 @@ import SettlementSuggestions from './components/SettlementSuggestions';
 import SettlementHistory from './components/SettlementHistory';
 import AddExpenseModal from './components/AddExpenseModal';
 import GroupManager from './components/GroupManager';
-import { fetchGroups, fetchExpenses, fetchBalances, fetchMembers, fetchSettlements } from './api/api';
+import { fetchGroups, fetchExpenses, fetchBalances, fetchMembers, fetchSettlements, verifyPasskey } from './api/api';
+
 
 export default function App() {
   const [groups, setGroups] = useState([]);
@@ -46,18 +47,52 @@ export default function App() {
     loadGroups();
   }, []);
 
+  // Store active group ID for the API interceptor
+  useEffect(() => {
+    if (currentGroup) {
+      localStorage.setItem('pocketsplit_active_group_id', currentGroup.id);
+    }
+  }, [currentGroup]);
+
   // Load group data when currentGroup changes
   useEffect(() => {
     if (currentGroup) loadGroupData();
   }, [currentGroup, refreshKey]);
 
+  async function handleGroupSwitch(group) {
+    // Check if group has a passkey and we haven't entered it yet
+    if (group.passcode_hash && !sessionStorage.getItem(`passkey_${group.id}`)) {
+      const passkey = prompt(`Group "${group.name}" is protected. Enter passkey:`);
+      if (!passkey) return; // user cancelled
+      sessionStorage.setItem(`passkey_${group.id}`, passkey);
+      localStorage.setItem('pocketsplit_active_group_id', group.id);
+      try {
+        await verifyPasskey(group.id);
+      } catch (e) {
+        sessionStorage.removeItem(`passkey_${group.id}`);
+        alert('Invalid passkey');
+        return;
+      }
+    }
+    setCurrentGroup(group);
+  }
+
   async function loadGroups() {
     try {
       const data = await fetchGroups();
       setGroups(data);
-      if (data.length > 0) setCurrentGroup(data[0]);
+      if (data.length > 0) {
+        // Auto-select first group; if it has a passkey, prompt
+        const first = data[0];
+        if (first.passcode_hash && !sessionStorage.getItem(`passkey_${first.id}`)) {
+          setCurrentGroup(null); // don't load data yet
+        } else {
+          setCurrentGroup(first);
+        }
+      }
     } catch (e) {
       console.error('Failed to load groups', e);
+
     }
   }
 
@@ -104,7 +139,8 @@ export default function App() {
         members={members}
         currentUser={currentUser}
         onUserSelect={selectUser}
-        onGroupChange={g => { setCurrentGroup(g); }}
+        onGroupChange={g => { handleGroupSwitch(g); }}
+
         onNewGroup={() => { setGroupManagerMode('create'); setShowGroupManager(true); }}
       />
 

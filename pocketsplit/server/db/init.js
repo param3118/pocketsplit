@@ -8,6 +8,7 @@ const initSql = `
   CREATE TABLE IF NOT EXISTS groups_table (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    passcode_hash TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 

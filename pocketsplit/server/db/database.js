@@ -57,6 +57,16 @@ async function getDb() {
   return client;
 }
 
+// Run after getDb() to apply migrations for existing databases
+async function runMigrations() {
+  try {
+    await client.execute("ALTER TABLE groups_table ADD COLUMN passcode_hash TEXT");
+    console.log('[Migration] Added passcode_hash column to groups_table');
+  } catch (e) {
+    // Column already exists — safe to ignore
+  }
+}
+
 /**
  * Helper to run a query and return all rows as objects
  */
@@ -82,4 +92,4 @@ async function dbRun(sql, params = []) {
   return await db.execute({ sql, args: params });
 }
 
-module.exports = { getDb, dbQuery, dbGet, dbRun };
+module.exports = { getDb, runMigrations, dbQuery, dbGet, dbRun };

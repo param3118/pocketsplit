@@ -1,10 +1,13 @@
 const { dbQuery, dbGet, dbRun } = require('../db/database');
 const { validateNonEmpty } = require('../utils/validators');
+const { hashPasskey } = require('../middleware/auth');
+
 
 // GET /groups
 async function getAllGroups(req, res) {
   const groups = await dbQuery(
     `SELECT g.id, g.name, g.created_at,
+       CASE WHEN g.passcode_hash IS NOT NULL THEN 1 ELSE 0 END as passcode_hash,
        COUNT(DISTINCT gm.user_id) as member_count,
        COUNT(DISTINCT CASE WHEN e.is_deleted=0 THEN e.id END) as expense_count
      FROM groups_table g
@@ -36,11 +39,13 @@ async function getGroup(req, res) {
 
 // POST /groups
 async function createGroup(req, res) {
-  const { name, member_names } = req.body;
+  const { name, member_names, passkey } = req.body;
   const nameErr = validateNonEmpty(name, 'name');
   if (nameErr) return res.status(400).json({ success: false, error: nameErr });
 
-  await dbRun(`INSERT INTO groups_table (name) VALUES (?)`, [name.trim()]);
+  const hashed = hashPasskey(passkey); // null if empty
+
+  await dbRun(`INSERT INTO groups_table (name, passcode_hash) VALUES (?, ?)`, [name.trim(), hashed]);
   const group = await dbGet(`SELECT * FROM groups_table ORDER BY id DESC LIMIT 1`);
 
   // Optionally create members
@@ -86,4 +91,10 @@ async function deleteGroup(req, res) {
   res.json({ success: true, message: 'Group deleted successfully' });
 }
 
-module.exports = { getAllGroups, getGroup, createGroup, updateGroup, deleteGroup };
+// POST /groups/:id/verify
+async function verifyPasskey(req, res) {
+  // Middleware handles the check, if it reaches here, it's valid
+  res.json({ success: true, message: 'Passkey verified' });
+}
+
+module.exports = { getAllGroups, getGroup, createGroup, updateGroup, deleteGroup, verifyPasskey };

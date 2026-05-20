@@ -63,6 +63,7 @@ app.use(errorHandler);
 async function start() {
   try {
     await getDb(); // Initialize DB
+    await require('./db/database').runMigrations(); // Run migrations
     await seed();  // Seed demo data if needed
 
     app.listen(PORT, () => {
