@@ -60,8 +60,8 @@ async function computeBalances(groupId) {
   );
 
   for (const sett of settlements) {
-    if (balanceMap.hasOwnProperty(sett.payer_id)) balanceMap[sett.payer_id] -= sett.amount;
-    if (balanceMap.hasOwnProperty(sett.receiver_id)) balanceMap[sett.receiver_id] += sett.amount;
+    if (balanceMap.hasOwnProperty(sett.payer_id)) balanceMap[sett.payer_id] += sett.amount;
+    if (balanceMap.hasOwnProperty(sett.receiver_id)) balanceMap[sett.receiver_id] -= sett.amount;
   }
 
   return members.map(m => ({
