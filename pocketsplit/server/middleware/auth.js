@@ -12,19 +12,18 @@ function hashPasskey(passkey) {
 // Middleware to check group passkey
 async function checkGroupAccess(req, res, next) {
   // Extract groupId from params or body
-  let groupId = req.params.groupId || req.params.id || req.body.group_id;
+  let groupId = req.params.groupId || req.body.group_id;
   
   // If no group ID is directly available in the route, we might need to look it up 
   // based on expenseId or settlementId, but we'll handle that per-controller if needed,
   // or pass it explicitly. For most routes, it's there.
   
-  if (!groupId) {
-    // If it's a route like PUT /expenses/:id, we need to fetch the group_id first
-    if (req.baseUrl.includes('expenses') && req.params.id) {
+  if (!groupId && req.params.id) {
+    if (req.originalUrl.includes('/groups/')) {
+        groupId = req.params.id;
+    } else if (req.originalUrl.includes('/expenses/') || req.originalUrl.includes('/expense/')) {
         const exp = await dbGet(`SELECT group_id FROM expenses WHERE id = ?`, [req.params.id]);
         if (exp) groupId = exp.group_id;
-    } else if (req.baseUrl.includes('groups') && req.params.id) {
-        groupId = req.params.id;
     }
   }
 
